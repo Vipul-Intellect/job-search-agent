@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Cloud Run - Job Search Agent API (Direct MCP Integration)"""
+"""Cloud Run - Job Search Agent API (ADK + MCP Integration)"""
 
 import os
 import json
 import logging
 import asyncio
-import subprocess
 import sys
+import httpx
 from pathlib import Path
 from flask import Flask, request, jsonify
+from google.genai import types
+from google.adk.runners import InMemoryRunner
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
@@ -18,79 +20,101 @@ app = Flask(__name__)
 # Ensure job_agent is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Import ADK agent to prove it's set up (requirement: "implemented using ADK")
+# Initialize ADK agent and runner
+AGENT_READY = False
+runner = None
+
 try:
     from job_agent.agent import root_agent
+    # Create InMemoryRunner (stateless, perfect for Cloud Run)
+    runner = InMemoryRunner(agent=root_agent)
     AGENT_READY = True
     logger.info("✓ ADK LlmAgent loaded with MCP tools")
+    logger.info("✓ InMemoryRunner initialized")
 except Exception as e:
     AGENT_READY = False
-    logger.warning(f"⚠ ADK agent import failed: {e}")
+    runner = None
+    logger.warning(f"⚠ ADK agent initialization failed: {e}")
+    import traceback
+    logger.warning(traceback.format_exc())
 
 logger.info("="*70)
 logger.info("JOB SEARCH AGENT - INITIALIZED")
 logger.info("Architecture: ADK (LlmAgent) + MCP (McpToolset) + Gemini + RapidAPI")
-logger.info(f"Agent status: {'✓ Ready' if AGENT_READY else '⚠ Not available'}")
+logger.info(f"Agent status: {'✓ Ready' if AGENT_READY and runner else '⚠ Not available'}")
 logger.info("="*70)
 
 async def search_with_agent(query: str, location: str) -> dict:
     """
-    Call the ADK agent which uses MCP tools to search for jobs.
+    Invoke ADK agent with InMemoryRunner.
 
-    The agent is configured with McpToolset connected to MCP server,
-    which calls RapidAPI JSearch. Agent handles orchestration automatically.
+    Agent automatically uses attached MCP tools to call RapidAPI JSearch.
+    MCP subprocess spawns naturally when agent needs the tool.
+    Returns structured job data from final event.
     """
-    if not AGENT_READY:
-        logger.warning("[AGENT] Agent not ready, using fallback API")
+    if not AGENT_READY or not runner:
+        logger.warning("[AGENT] Agent/Runner not ready, using fallback API")
         return await call_rapidapi_fallback(query, location)
 
     try:
-        logger.info(f"[AGENT] Using ADK agent for query='{query}', location='{location}'")
+        logger.info(f"[AGENT] Invoking ADK agent: query='{query}', location='{location}'")
 
-        # Create the prompt for the agent
         prompt = f"Search for {query} jobs in {location} India"
-        logger.info(f"[AGENT] Prompt: {prompt}")
 
-        # Call the agent - it will automatically use its MCP tools
-        logger.info(f"[AGENT] Calling root_agent...")
+        # Create user message for the agent
+        user_message = types.Content(
+            role="user",
+            parts=[types.Part(text=prompt)]
+        )
 
-        # Try the agent's run method
-        try:
-            # Agent has the MCP tool attached, feed it a prompt
-            result = await root_agent.run(prompt)
-            logger.info(f"[AGENT] Agent returned: {type(result)}")
+        logger.info(f"[AGENT] Sending message to agent: {prompt}")
 
-            # Parse agent response
-            if isinstance(result, str):
-                # If agent returns a string, try to extract structured data
-                import json
-                try:
-                    jobs_data = json.loads(result)
-                    if isinstance(jobs_data, list):
-                        return {
-                            "success": True,
-                            "count": len(jobs_data),
-                            "jobs": jobs_data
-                        }
-                except:
-                    pass
-            elif isinstance(result, dict):
-                return result if result.get("success") else await call_rapidapi_fallback(query, location)
+        # Stream events from agent execution
+        jobs_data = []
+        final_response = None
 
-        except AttributeError:
-            # run() doesn't exist, try run_async()
-            logger.warning("[AGENT] run() not available, trying alternative approach")
-            result = await root_agent.run_async(prompt) if hasattr(root_agent, 'run_async') else None
-            if result:
-                return result if isinstance(result, dict) else await call_rapidapi_fallback(query, location)
+        async for event in runner.run_async(
+            user_id="cloud_run_request",
+            session_id=f"search_{query}_{location}",
+            new_message=user_message
+        ):
+            # Log significant events
+            if event.get_function_calls():
+                logger.info(f"[AGENT] Tool call detected: {event.get_function_calls()}")
 
-        # If agent approach failed, use fallback
-        logger.warning("[AGENT] Agent execution failed, using RapidAPI fallback")
-        return await call_rapidapi_fallback(query, location)
+            if event.get_function_responses():
+                logger.info(f"[AGENT] Tool response received")
+
+                # Extract jobs from tool response
+                for response in event.get_function_responses():
+                    try:
+                        if response.response:
+                            response_data = json.loads(response.response)
+                            if isinstance(response_data, dict) and "jobs" in response_data:
+                                jobs_data = response_data.get("jobs", [])
+                                logger.info(f"[AGENT] Extracted {len(jobs_data)} jobs from tool response")
+                    except Exception as e:
+                        logger.warning(f"[AGENT] Could not parse tool response: {e}")
+
+            # Capture final output content
+            if event.output_content:
+                final_response = event.output_content
+                logger.info(f"[AGENT] Agent output received")
+
+        if jobs_data:
+            logger.info(f"[AGENT] Successfully got {len(jobs_data)} jobs via agent + MCP")
+            return {
+                "success": True,
+                "count": len(jobs_data),
+                "jobs": jobs_data
+            }
+        else:
+            logger.warning("[AGENT] No jobs extracted from agent, using fallback API")
+            return await call_rapidapi_fallback(query, location)
 
     except Exception as e:
-        logger.error(f"[AGENT] Error calling agent: {type(e).__name__}: {str(e)}")
-        logger.error(f"[AGENT] Stack trace: {__import__('traceback').format_exc()}")
+        logger.error(f"[AGENT] Error during agent execution: {type(e).__name__}: {str(e)}")
+        logger.error(f"[AGENT] Traceback: {__import__('traceback').format_exc()}")
         logger.warning("[AGENT] Falling back to direct RapidAPI call")
         return await call_rapidapi_fallback(query, location)
 
