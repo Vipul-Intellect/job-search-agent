@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cloud Run - Job Search Agent API (ADK + MCP + Vertex AI Integration)"""
+"""Cloud Run - Job Search Agent API (ADK + MCP Integration)"""
 
 import os
 import json
@@ -10,14 +10,7 @@ import httpx
 from pathlib import Path
 from flask import Flask, request, jsonify
 from google.adk.runners import InMemoryRunner
-
-# Use Vertex AI (google.ai.generativelanguage) for proper Cloud integration
-# When running on Cloud Run, ADC (Application Default Credentials) is automatic
-try:
-    from google.ai.generativelanguage import types
-except ImportError:
-    # Fallback to google.genai for compatibility
-    from google.genai import types
+from google.genai import types
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
