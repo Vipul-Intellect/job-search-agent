@@ -11,14 +11,18 @@ sys.stderr.write("="*60 + "\n")
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Only load .env in local development, not in Cloud Run
+if os.path.exists(".env"):
+    load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
+# Don't crash if keys missing - Flask will handle the error
 if not GOOGLE_API_KEY or not RAPIDAPI_KEY:
-    sys.stderr.write("ERROR: Missing API keys!\n")
-    exit(1)
+    sys.stderr.write("WARNING: Missing API keys - agent will not work\n")
+    sys.stderr.write(f"GOOGLE_API_KEY: {'set' if GOOGLE_API_KEY else 'MISSING'}\n")
+    sys.stderr.write(f"RAPIDAPI_KEY: {'set' if RAPIDAPI_KEY else 'MISSING'}\n")
 
 # Path to MCP server
 mcp_server_path = os.path.join(

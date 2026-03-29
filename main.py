@@ -53,33 +53,46 @@ async def call_agent_search(query: str, location: str) -> dict:
 
     try:
         logger.info(f"[AGENT] Importing ADK agent...")
-        from job_agent.agent import root_agent
+        from job_agent.agent import root_agent, GOOGLE_API_KEY, RAPIDAPI_KEY
+
+        # Check if keys are available
+        if not GOOGLE_API_KEY:
+            logger.error("[AGENT] GOOGLE_API_KEY not set in environment")
+            return {"success": False, "jobs": [], "error": "GOOGLE_API_KEY not configured"}
+        if not RAPIDAPI_KEY:
+            logger.error("[AGENT] RAPIDAPI_KEY not set in environment")
+            return {"success": False, "jobs": [], "error": "RAPIDAPI_KEY not configured"}
 
         prompt = f"Search for {query} jobs in {location}"
         logger.info(f"[AGENT] Calling with prompt: {prompt}")
 
         # Try the run() method
         if hasattr(root_agent, 'run'):
+            logger.info("[AGENT] Executing root_agent.run()...")
             result = await root_agent.run(prompt)
-            logger.info(f"[AGENT] Agent returned result")
+            logger.info(f"[AGENT] Agent returned: {type(result)}")
 
             # Parse result
             if isinstance(result, dict):
+                logger.info(f"[AGENT] Got dict result with success={result.get('success')}")
                 return result
             elif isinstance(result, str):
                 try:
-                    return json.loads(result)
-                except:
-                    logger.warning("Could not parse string result as JSON")
-                    return {"success": False, "jobs": [], "error": "Invalid response format"}
+                    parsed = json.loads(result)
+                    logger.info(f"[AGENT] Parsed JSON string result")
+                    return parsed
+                except Exception as je:
+                    logger.warning(f"[AGENT] Could not parse string as JSON: {je}")
+                    return {"success": False, "jobs": [], "error": f"Parse error: {str(je)}"}
             else:
-                logger.warning(f"Unexpected result type: {type(result)}")
-                return {"success": False, "jobs": []}
+                logger.warning(f"[AGENT] Unexpected result type: {type(result)}")
+                return {"success": False, "jobs": [], "error": f"Unexpected type: {type(result).__name__}"}
 
         # Try execute() method
         elif hasattr(root_agent, 'execute'):
             logger.info("[AGENT] Using execute() method")
             result = await root_agent.execute(prompt)
+            logger.info(f"[AGENT] Execute returned: {type(result)}")
             if isinstance(result, dict):
                 return result
             elif isinstance(result, str):
@@ -89,15 +102,15 @@ async def call_agent_search(query: str, location: str) -> dict:
 
         else:
             logger.error("[AGENT] No execution method found on agent")
-            available = [m for m in dir(root_agent) if not m.startswith('_')]
-            logger.error(f"[AGENT] Available methods: {available}")
+            available = [m for m in dir(root_agent) if not m.startswith('_') and callable(getattr(root_agent, m))]
+            logger.error(f"[AGENT] Available methods: {available[:20]}")  # Limit output
             return {"success": False, "jobs": [], "error": "Agent method not found"}
 
     except Exception as e:
-        logger.error(f"[AGENT] Error calling agent: {type(e).__name__}: {str(e)}")
+        logger.error(f"[AGENT] Exception: {type(e).__name__}: {str(e)}")
         import traceback
         logger.error(f"[AGENT] Traceback:\n{traceback.format_exc()}")
-        return {"success": False, "jobs": [], "error": str(e)}
+        return {"success": False, "jobs": [], "error": f"{type(e).__name__}: {str(e)}"}
 
 logger.info("="*70)
 logger.info("JOB SEARCH AGENT - INITIALIZED")
