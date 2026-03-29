@@ -1,0 +1,7 @@
+google-adk>=0.3.0
+google-cloud-aiplatform
+google-generativeai
+mcp>=1.0.0
+httpx
+python-dotenv
+flask
