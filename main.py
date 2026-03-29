@@ -33,33 +33,86 @@ logger.info("Architecture: ADK (LlmAgent) + MCP (McpToolset) + Gemini + RapidAPI
 logger.info(f"Agent status: {'✓ Ready' if AGENT_READY else '⚠ Not available'}")
 logger.info("="*70)
 
-async def call_mcp_search(query: str, location: str) -> dict:
+async def search_with_agent(query: str, location: str) -> dict:
     """
-    Call the MCP server directly to search for jobs.
+    Call the ADK agent which uses MCP tools to search for jobs.
 
-    The ADK agent is configured with this MCP tool,
-    but for straightforward HTTP requests, calling the tool directly
-    is simpler and more reliable than agent orchestration.
+    The agent is configured with McpToolset connected to MCP server,
+    which calls RapidAPI JSearch. Agent handles orchestration automatically.
+    """
+    if not AGENT_READY:
+        logger.warning("[AGENT] Agent not ready, using fallback API")
+        return await call_rapidapi_fallback(query, location)
+
+    try:
+        logger.info(f"[AGENT] Using ADK agent for query='{query}', location='{location}'")
+
+        # Create the prompt for the agent
+        prompt = f"Search for {query} jobs in {location} India"
+        logger.info(f"[AGENT] Prompt: {prompt}")
+
+        # Call the agent - it will automatically use its MCP tools
+        logger.info(f"[AGENT] Calling root_agent...")
+
+        # Try the agent's run method
+        try:
+            # Agent has the MCP tool attached, feed it a prompt
+            result = await root_agent.run(prompt)
+            logger.info(f"[AGENT] Agent returned: {type(result)}")
+
+            # Parse agent response
+            if isinstance(result, str):
+                # If agent returns a string, try to extract structured data
+                import json
+                try:
+                    jobs_data = json.loads(result)
+                    if isinstance(jobs_data, list):
+                        return {
+                            "success": True,
+                            "count": len(jobs_data),
+                            "jobs": jobs_data
+                        }
+                except:
+                    pass
+            elif isinstance(result, dict):
+                return result if result.get("success") else await call_rapidapi_fallback(query, location)
+
+        except AttributeError:
+            # run() doesn't exist, try run_async()
+            logger.warning("[AGENT] run() not available, trying alternative approach")
+            result = await root_agent.run_async(prompt) if hasattr(root_agent, 'run_async') else None
+            if result:
+                return result if isinstance(result, dict) else await call_rapidapi_fallback(query, location)
+
+        # If agent approach failed, use fallback
+        logger.warning("[AGENT] Agent execution failed, using RapidAPI fallback")
+        return await call_rapidapi_fallback(query, location)
+
+    except Exception as e:
+        logger.error(f"[AGENT] Error calling agent: {type(e).__name__}: {str(e)}")
+        logger.error(f"[AGENT] Stack trace: {__import__('traceback').format_exc()}")
+        logger.warning("[AGENT] Falling back to direct RapidAPI call")
+        return await call_rapidapi_fallback(query, location)
+
+
+async def call_rapidapi_fallback(query: str, location: str) -> dict:
+    """
+    Fallback: Call RapidAPI directly (same logic as MCP server uses).
+
+    Used when agent execution fails.
     """
     try:
-        # Build the MCP server command
+        # Build the MCP server command (reference)
         mcp_server_path = Path(__file__).parent / "mcp_job_server" / "server.py"
 
-        logger.info(f"[MCP] Calling search_jobs with: query='{query}', location='{location}'")
+        logger.info(f"[FALLBACK] Calling RapidAPI directly: query='{query}', location='{location}'")
 
-        # Use subprocess to call the MCP server directly
-        # This is equivalent to what the agent would do
         import json
         import httpx
-        import hashlib
-        from datetime import datetime, timedelta
-
-        # Since we can't easily call the MCP subprocess directly,
-        # we'll call the RapidAPI endpoint with the same logic as the MCP server
 
         api_key = os.getenv("RAPIDAPI_KEY")
         if not api_key:
-            logger.error("[MCP] RAPIDAPI_KEY not configured")
+            logger.error("[FALLBACK] RAPIDAPI_KEY not configured")
             return {"success": False, "jobs": [], "error": "API key not configured"}
 
         headers = {
@@ -78,7 +131,7 @@ async def call_mcp_search(query: str, location: str) -> dict:
 
         params = {"query": search_query, "num_pages": 1}
 
-        logger.info(f"[MCP] API request: {search_query}")
+        logger.info(f"[FALLBACK] API request: {search_query}")
 
         # Call RapidAPI
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -90,7 +143,7 @@ async def call_mcp_search(query: str, location: str) -> dict:
             response.raise_for_status()
 
             data = response.json()
-            logger.info(f"[MCP] API returned {len(data.get('data', []))} jobs")
+            logger.info(f"[FALLBACK] API returned {len(data.get('data', []))} jobs")
 
             # Format response
             jobs = data.get("data", [])[:10]
@@ -113,13 +166,12 @@ async def call_mcp_search(query: str, location: str) -> dict:
                 "jobs": formatted_jobs
             }
 
-            logger.info(f"[MCP] Returning {len(formatted_jobs)} formatted jobs")
+            logger.info(f"[FALLBACK] Returning {len(formatted_jobs)} formatted jobs")
             return result
 
     except Exception as e:
-        logger.error(f"[MCP] Error: {type(e).__name__}: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"[FALLBACK] Error: {type(e).__name__}: {str(e)}")
+        logger.error(__import__('traceback').format_exc())
         return {"success": False, "jobs": [], "error": str(e)}
 
 
@@ -163,8 +215,8 @@ def search_post():
 
         logger.info(f"[AGENT] Query: {query} in {location}")
 
-        # Call MCP directly (agent would orchestrate this)
-        result = asyncio.run(call_mcp_search(query, location))
+        # Call the ADK agent with its MCP tools
+        result = asyncio.run(search_with_agent(query, location))
 
         if result.get("success"):
             jobs = result.get("jobs", [])
@@ -206,8 +258,8 @@ def search_get():
 
         logger.info(f"[AGENT] Query: {query} in {location}")
 
-        # Call MCP directly (agent would orchestrate this)
-        result = asyncio.run(call_mcp_search(query, location))
+        # Call the ADK agent with its MCP tools
+        result = asyncio.run(search_with_agent(query, location))
 
         if result.get("success"):
             jobs = result.get("jobs", [])
