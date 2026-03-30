@@ -656,6 +656,17 @@
                        value="Bangalore" aria-label="Job location">
             </div>
 
+            <div class="mb-3">
+                <label for="level" class="form-label">Job Level (Optional)</label>
+                <select class="form-control" id="level" aria-label="Job level filter">
+                    <option value="all">All Levels</option>
+                    <option value="entry_level">Entry Level (Intern, Graduate)</option>
+                    <option value="mid_level">Mid Level (3-7 years)</option>
+                    <option value="senior_level">Senior Level (7+ years)</option>
+                    <option value="c-level">C-Level / Leadership</option>
+                </select>
+            </div>
+
             <button type="submit" class="btn btn-primary">
                 <span id="searchText">🔎 Search Jobs</span>
                 <span id="searchSpinner" class="spinner-border spinner-border-sm" style="display:none;"></span>
@@ -710,6 +721,10 @@
         };
 
         let lastSearchTime = 0;
+        let currentPage = 1;
+        let currentQuery = '';
+        let currentLocation = '';
+        let currentLevel = 'all';
 
         // ===== FORM SUBMISSION =====
         document.getElementById('searchForm').addEventListener('submit', async (e) => {
@@ -720,12 +735,19 @@
                 return;
             }
             lastSearchTime = now;
+            currentPage = 1;  // Reset to page 1 on new search
             await searchJobs();
         });
 
-        async function searchJobs() {
+        async function searchJobs(page = 1) {
             const queryInput = document.getElementById('query').value.trim();
             const locationInput = document.getElementById('location').value.trim();
+            const levelInput = document.getElementById('level').value.trim();
+
+            currentQuery = queryInput;
+            currentLocation = locationInput;
+            currentLevel = levelInput;
+            currentPage = page;
 
             if (!queryInput || queryInput.length < CONFIG.MIN_QUERY_LENGTH) {
                 showError('Job title cannot be empty');
@@ -765,7 +787,12 @@
                 const response = await fetch('/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: queryInput, location: locationInput }),
+                    body: JSON.stringify({
+                        query: queryInput,
+                        location: locationInput,
+                        page: page,
+                        level: levelInput
+                    }),
                     signal: controller.signal
                 });
 
@@ -803,7 +830,14 @@
 
             const resultTitle = document.getElementById('resultTitle');
             resultTitle.innerHTML = '';
-            resultTitle.innerHTML = `Found <strong>${data.job_count || 0}</strong> Jobs for "<strong>${escapeHtml(queryInput)}</strong>" in <strong>${escapeHtml(locationInput)}</strong>`;
+            let titleText = `Found <strong>${data.job_count || 0}</strong> Jobs for "<strong>${escapeHtml(queryInput)}</strong>" in <strong>${escapeHtml(locationInput)}</strong>`;
+            if (data.level_filter && data.level_filter !== 'all') {
+                titleText += ` • Level: <strong>${data.level_filter.replace(/_/g, ' ')}</strong>`;
+            }
+            if (data.total_pages > 1) {
+                titleText += ` • Page ${data.page} of ${data.total_pages}`;
+            }
+            resultTitle.innerHTML = titleText;
 
             if (!Array.isArray(data.jobs)) {
                 showError('Invalid response format');
@@ -874,6 +908,38 @@
 
                 container.appendChild(card);
             });
+
+            // Add pagination buttons if there are multiple pages
+            if (data.total_pages > 1) {
+                const paginationDiv = document.createElement('div');
+                paginationDiv.className = 'mt-4 d-flex justify-content-center gap-2 pagination-controls';
+                paginationDiv.style.marginTop = '30px';
+
+                if (data.page > 1) {
+                    const prevBtn = document.createElement('button');
+                    prevBtn.className = 'btn btn-sm btn-outline-primary';
+                    prevBtn.textContent = '← Previous';
+                    prevBtn.onclick = () => searchJobs(data.page - 1);
+                    paginationDiv.appendChild(prevBtn);
+                }
+
+                const pageInfo = document.createElement('span');
+                pageInfo.className = 'mx-3';
+                pageInfo.style.alignSelf = 'center';
+                pageInfo.style.fontWeight = '500';
+                pageInfo.textContent = `Page ${data.page} of ${data.total_pages}`;
+                paginationDiv.appendChild(pageInfo);
+
+                if (data.page < data.total_pages) {
+                    const nextBtn = document.createElement('button');
+                    nextBtn.className = 'btn btn-sm btn-outline-primary';
+                    nextBtn.textContent = 'Next →';
+                    nextBtn.onclick = () => searchJobs(data.page + 1);
+                    paginationDiv.appendChild(nextBtn);
+                }
+
+                container.appendChild(paginationDiv);
+            }
 
             document.getElementById('resultsSection').style.display = 'block';
         }

@@ -180,7 +180,7 @@ logger.info(f"Agent status: {'✓ Ready' if AGENT_READY and runner else '⚠ Not
 logger.info("="*70)
 
 # ===== AGENT EXECUTION WITH TIMEOUT =====
-async def search_with_agent(query: str, location: str) -> dict:
+async def search_with_agent(query: str, location: str, page: int = 1, level: str = "all") -> dict:
     """
     Invoke ADK agent with timeout protection.
     Agent uses MCP tools to call RapidAPI JSearch.
@@ -192,7 +192,10 @@ async def search_with_agent(query: str, location: str) -> dict:
     try:
         # Sanitize prompt to prevent injection
         prompt = InputValidator.sanitize_prompt(query, location)
-        logger.info(f"[AGENT] Invoking ADK agent")
+        # Add page and level info to prompt for agent
+        if page > 1 or level != "all":
+            prompt += f" (Page {page}, Level: {level})"
+        logger.info(f"[AGENT] Invoking ADK agent with prompt: {prompt}")
 
         user_message = types.Content(
             role="user",
@@ -358,10 +361,11 @@ def health():
     return jsonify({"healthy": True, "ready": True})
 
 
-def search_jobs_impl(query: str, location: str):
+def search_jobs_impl(query: str, location: str, page: int = 1, level: str = "all"):
     """
     Common search logic (extracted to avoid DRY violation).
     Handles both POST and GET requests.
+    Supports pagination and job level filtering.
     """
     # Validate inputs
     valid, error = InputValidator.validate_query(query)
@@ -372,11 +376,23 @@ def search_jobs_impl(query: str, location: str):
     if not valid:
         return jsonify({"success": False, "error": error}), 400
 
-    logger.info(f"[SEARCH] Processing query")
+    # Normalize page (1-3 range)
+    try:
+        page = max(1, min(int(page), 3))
+    except (ValueError, TypeError):
+        page = 1
+
+    # Normalize level
+    valid_levels = ["all", "entry_level", "mid_level", "senior_level", "c-level", "internship"]
+    level = str(level).lower() if level else "all"
+    if level not in valid_levels:
+        level = "all"
+
+    logger.info(f"[SEARCH] Processing query (page={page}, level={level})")
 
     try:
-        # Call agent with timeout
-        result = asyncio.run(search_with_agent(query, location))
+        # Call agent with timeout (pass page and level)
+        result = asyncio.run(search_with_agent(query, location, page, level))
 
         # Validate response
         if result.get("success") and result.get("jobs"):
@@ -396,6 +412,10 @@ def search_jobs_impl(query: str, location: str):
             "location": location,
             "jobs": jobs,
             "job_count": job_count,
+            "page": result.get("page", page),
+            "total_pages": result.get("total_pages", 1),
+            "total_available": result.get("total_available", job_count),
+            "level_filter": level,
             "data_source": "RapidAPI JSearch (via MCP tool)",
             "agent": "ADK LlmAgent with MCP integration",
             "model": "gemini-2.5-flash",
@@ -416,8 +436,10 @@ def search_post():
         data = request.get_json() or {}
         query = str(data.get("query", "")).strip()
         location = str(data.get("location", "India")).strip()
+        page = data.get("page", 1)
+        level = str(data.get("level", "all")).strip()
 
-        return search_jobs_impl(query, location)
+        return search_jobs_impl(query, location, page, level)
 
     except Exception as e:
         logger.error(f"[SEARCH] Exception: {type(e).__name__}")
@@ -427,12 +449,14 @@ def search_post():
 @app.route("/search", methods=["GET"])
 @rate_limit
 def search_get():
-    """GET /search?query=...&location=... - Search for jobs via MCP tool"""
+    """GET /search?query=...&location=...&page=...&level=... - Search for jobs via MCP tool"""
     try:
         query = str(request.args.get("query", "")).strip()
         location = str(request.args.get("location", "India")).strip()
+        page = request.args.get("page", 1, type=int)
+        level = str(request.args.get("level", "all")).strip()
 
-        return search_jobs_impl(query, location)
+        return search_jobs_impl(query, location, page, level)
 
     except Exception as e:
         logger.error(f"[SEARCH] Exception: {type(e).__name__}")
