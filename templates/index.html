@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://fonts.googleapis.com;">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Job Intelligence Agent - AI Powered Job Search</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmABheP7Xy8Tg2fsSe2DMXESJBDhD0+" crossorigin="anonymous">
     <style>
         :root {
             --primary: #007bff;
@@ -334,142 +339,52 @@
         <p style="font-size: 0.9rem; opacity: 0.8;">© 2026 GenAI Academy Project | <a href="/api" style="color: white; text-decoration: underline;">API Docs</a></p>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Form submission
-        document.getElementById('searchForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await searchJobs();
-        });
+        // ===== SECURITY CONFIGURATION =====
 
-        async function searchJobs() {
-            const query = document.getElementById('query').value.trim();
-            const location = document.getElementById('location').value.trim();
+        // Input validation constants
+        const CONFIG = {
+            MAX_QUERY_LENGTH: 500,
+            MIN_QUERY_LENGTH: 1,
+            MAX_LOCATION_LENGTH: 200,
+            SEARCH_COOLDOWN_MS: 1000,
+            REQUEST_TIMEOUT_MS: 30000,
+            ALLOWED_QUERY_REGEX: /^[a-zA-Z0-9\s\-&(),.\/]+$/, // Only alphanumeric, spaces, and common job term chars
+        };
 
-            if (!query) {
-                showError('Please enter a job title or role');
-                return;
+        let lastSearchTime = 0;
+
+        // ===== SECURITY: XSS PREVENTION =====
+
+        /**
+         * Creates a safe text node for DOM content (no HTML injection)
+         * Use this instead of innerHTML for user data
+         */
+        function createSafeElement(tag, text, className = '') {
+            const el = document.createElement(tag);
+            el.textContent = text; // textContent is immune to XSS
+            if (className) el.className = className;
+            return el;
+        }
+
+        /**
+         * Safely sets element text (immune to XSS)
+         */
+        function setSafeText(elementId, text) {
+            const el = document.getElementById(elementId);
+            if (el) el.textContent = text;
+        }
+
+        /**
+         * Safely adds HTML with proper escaping
+         * Use for calculated HTML where user data is properly escaped
+         */
+        function safeSetHTML(elementId, html) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                el.innerHTML = '';
+                el.insertAdjacentHTML('afterbegin', html);
             }
-
-            // Show loading state
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('resultsSection').style.display = 'none';
-            document.getElementById('errorMessage').style.display = 'none';
-            document.getElementById('searchText').style.display = 'none';
-            document.getElementById('searchSpinner').style.display = 'inline-block';
-
-            try {
-                const response = await fetch('/search', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query, location })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP Error: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                if (data.success && data.jobs && data.jobs.length > 0) {
-                    displayResults(data);
-                } else {
-                    showError(`No jobs found for "${query}" in ${location}. Try a different search!`);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                showError(`Search failed: ${error.message}`);
-            } finally {
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('searchText').style.display = 'inline';
-                document.getElementById('searchSpinner').style.display = 'none';
-            }
-        }
-
-        function displayResults(data) {
-            const container = document.getElementById('jobsContainer');
-            container.innerHTML = '';
-
-            document.getElementById('resultTitle').innerHTML =
-                `Found <strong>${data.job_count}</strong> Jobs for "${data.query}" in ${data.location}`;
-
-            data.jobs.forEach((job, index) => {
-                const postedDate = new Date(job.posted).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-
-                const card = document.createElement('div');
-                card.className = 'job-card';
-                card.style.animationDelay = `${index * 0.1}s`;
-
-                card.innerHTML = `
-                    <div class="job-header">
-                        <div style="flex: 1;">
-                            <h4 class="job-title">${escapeHtml(job.title)}</h4>
-                            <p class="job-company">${escapeHtml(job.company)}</p>
-                        </div>
-                    </div>
-
-                    <div class="job-meta">
-                        <div class="meta-item">
-                            <span>📍</span>
-                            <span>${escapeHtml(job.location)}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span>💼</span>
-                            <span>${escapeHtml(job.type)}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span>📅</span>
-                            <span>${postedDate}</span>
-                        </div>
-                    </div>
-
-                    <div class="job-description">
-                        ${escapeHtml(job.description_snippet)}
-                    </div>
-
-                    <div class="job-actions">
-                        <a href="${escapeHtml(job.apply_link)}" target="_blank" rel="noopener noreferrer"
-                           class="btn btn-primary btn-sm">
-                            🔗 View Job
-                        </a>
-                        <button class="btn btn-outline-secondary btn-sm"
-                                onclick="copyToClipboard('${escapeHtml(job.apply_link)}', event)">
-                            📋 Copy Link
-                        </button>
-                    </div>
-                `;
-
-                container.appendChild(card);
-            });
-
-            document.getElementById('resultsSection').style.display = 'block';
-        }
-
-        function showError(message) {
-            document.getElementById('errorMessage').textContent = '❌ ' + message;
-            document.getElementById('errorMessage').style.display = 'block';
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('resultsSection').style.display = 'none';
-        }
-
-        function copyToClipboard(text, event) {
-            event.preventDefault();
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = event.target;
-                const originalText = btn.textContent;
-                btn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                }, 2000);
-            }).catch(err => {
-                showError('Failed to copy link');
-            });
         }
 
         function escapeHtml(text) {
@@ -480,13 +395,284 @@
                 '"': '&quot;',
                 "'": '&#039;'
             };
-            return text.replace(/[&<>"']/g, m => map[m]);
+            return String(text).replace(/[&<>"']/g, m => map[m]);
         }
 
-        // Check API status on page load
+        // ===== INPUT VALIDATION =====
+
+        function validateQuery(query) {
+            if (!query || query.length < CONFIG.MIN_QUERY_LENGTH) {
+                return { valid: false, error: 'Job title cannot be empty' };
+            }
+            if (query.length > CONFIG.MAX_QUERY_LENGTH) {
+                return { valid: false, error: `Job title too long (max ${CONFIG.MAX_QUERY_LENGTH} characters)` };
+            }
+            // Check for prompt injection attempts
+            if (query.toLowerCase().includes('delete') ||
+                query.toLowerCase().includes('drop') ||
+                query.toLowerCase().includes('execute') ||
+                query.toLowerCase().includes('curl') ||
+                query.toLowerCase().includes('bash')) {
+                return { valid: false, error: 'Invalid characters in search' };
+            }
+            return { valid: true };
+        }
+
+        function validateLocation(location) {
+            if (!location) return { valid: true }; // Optional field
+            if (location.length > CONFIG.MAX_LOCATION_LENGTH) {
+                return { valid: false, error: `Location too long (max ${CONFIG.MAX_LOCATION_LENGTH} characters)` };
+            }
+            return { valid: true };
+        }
+
+        // ===== RATE LIMITING =====
+
+        function canSearch() {
+            const now = Date.now();
+            if (now - lastSearchTime < CONFIG.SEARCH_COOLDOWN_MS) {
+                return false;
+            }
+            lastSearchTime = now;
+            return true;
+        }
+
+        // ===== FORM SUBMISSION =====
+
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!canSearch()) {
+                showError('Please wait before searching again');
+                return;
+            }
+
+            await searchJobs();
+        });
+
+        async function searchJobs() {
+            const queryInput = document.getElementById('query').value.trim();
+            const locationInput = document.getElementById('location').value.trim();
+
+            // Validate inputs
+            const queryValidation = validateQuery(queryInput);
+            if (!queryValidation.valid) {
+                showError(queryValidation.error);
+                return;
+            }
+
+            const locationValidation = validateLocation(locationInput);
+            if (!locationValidation.valid) {
+                showError(locationValidation.error);
+                return;
+            }
+
+            // Disable search button during request
+            const searchBtn = document.querySelector('button[type="submit"]');
+            const wasDisabled = searchBtn.disabled;
+            searchBtn.disabled = true;
+
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('searchText').style.display = 'none';
+            document.getElementById('searchSpinner').style.display = 'inline-block';
+
+            try {
+                // Set request timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: queryInput,
+                        location: locationInput
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    // Generic error message to prevent info disclosure
+                    throw new Error(`Search failed (${response.status})`);
+                }
+
+                const data = await response.json();
+
+                // Validate response structure
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid response from server');
+                }
+
+                if (data.success && Array.isArray(data.jobs) && data.jobs.length > 0) {
+                    displayResults(data, queryInput, locationInput);
+                } else {
+                    showError('No jobs found. Try a different search!');
+                }
+            } catch (error) {
+                console.error('Search error (logged for debugging)');
+                // Only show generic error to user
+                if (error.name === 'AbortError') {
+                    showError('Search timed out. Please try again.');
+                } else {
+                    showError('Search failed. Please check your connection and try again.');
+                }
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchText').style.display = 'inline';
+                document.getElementById('searchSpinner').style.display = 'none';
+                searchBtn.disabled = wasDisabled;
+            }
+        }
+
+        function displayResults(data, queryInput, locationInput) {
+            const container = document.getElementById('jobsContainer');
+            container.innerHTML = '';
+
+            // FIX: Use safe text content, not innerHTML
+            const resultTitle = document.getElementById('resultTitle');
+            resultTitle.innerHTML = ''; // Clear first
+
+            const titleSpan = document.createElement('span');
+            titleSpan.textContent = `Found `;
+            resultTitle.appendChild(titleSpan);
+
+            const countSpan = document.createElement('strong');
+            countSpan.textContent = String(data.job_count || 0);
+            resultTitle.appendChild(countSpan);
+
+            const restSpan = document.createElement('span');
+            restSpan.textContent = ` Jobs for "${escapeHtml(queryInput)}" in ${escapeHtml(locationInput)}`;
+            resultTitle.appendChild(restSpan);
+
+            // Validate jobs array
+            if (!Array.isArray(data.jobs)) {
+                showError('Invalid response format');
+                return;
+            }
+
+            data.jobs.forEach((job, index) => {
+                // Validate job object has required fields
+                if (!job || typeof job !== 'object' || !job.title || !job.company) {
+                    console.warn('Skipping malformed job object');
+                    return;
+                }
+
+                const postedDate = new Date(job.posted).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+
+                const card = document.createElement('div');
+                card.className = 'job-card';
+                card.style.animationDelay = `${index * 0.1}s`;
+
+                // FIX: Build HTML safely with escaped user data
+                const titleEscaped = escapeHtml(job.title);
+                const companyEscaped = escapeHtml(job.company);
+                const locationEscaped = escapeHtml(job.location || 'N/A');
+                const typeEscaped = escapeHtml(job.type || 'N/A');
+                const descEscaped = escapeHtml(job.description_snippet || '');
+                const linkEscaped = escapeHtml(job.apply_link || '#');
+
+                card.innerHTML = `
+                    <div class="job-header">
+                        <div style="flex: 1;">
+                            <h4 class="job-title">${titleEscaped}</h4>
+                            <p class="job-company">${companyEscaped}</p>
+                        </div>
+                    </div>
+
+                    <div class="job-meta">
+                        <div class="meta-item">
+                            <span>📍</span>
+                            <span>${locationEscaped}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span>💼</span>
+                            <span>${typeEscaped}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span>📅</span>
+                            <span>${postedDate}</span>
+                        </div>
+                    </div>
+
+                    <div class="job-description">
+                        ${descEscaped}
+                    </div>
+
+                    <div class="job-actions">
+                        <a href="${linkEscaped}" target="_blank" rel="noopener noreferrer"
+                           class="btn btn-primary btn-sm">
+                            🔗 View Job
+                        </a>
+                        <button class="btn btn-outline-secondary btn-sm" data-link="${linkEscaped}">
+                            📋 Copy Link
+                        </button>
+                    </div>
+                `;
+
+                // FIX: Use addEventListener instead of inline onclick
+                const copyBtn = card.querySelector('.btn-outline-secondary');
+                copyBtn.addEventListener('click', copyToClipboard);
+
+                container.appendChild(card);
+            });
+
+            document.getElementById('resultsSection').style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('errorMessage');
+            errorEl.textContent = '❌ ' + message; // Use textContent, not innerHTML
+            errorEl.style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'none';
+        }
+
+        // FIX: Use addEventListener instead of inline onclick
+        function copyToClipboard(event) {
+            event.preventDefault();
+            const link = event.target.getAttribute('data-link');
+
+            if (!link || link === '#') {
+                showError('Copy failed: Invalid link');
+                return;
+            }
+
+            navigator.clipboard.writeText(link).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                btn.disabled = true;
+
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                }, 2000);
+            }).catch(err => {
+                showError('Copy failed. Please try again.');
+            });
+        }
+
+        // ===== API STATUS CHECK =====
+
         window.addEventListener('load', async () => {
             try {
-                const response = await fetch('/health');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                const response = await fetch('/health', { signal: controller.signal });
+                clearTimeout(timeoutId);
+
                 if (response.ok) {
                     document.getElementById('apiStatus').textContent = '✓ Ready';
                     document.getElementById('apiStatus').className = 'api-status bg-success';
@@ -497,10 +683,8 @@
                 document.getElementById('apiStatus').textContent = '⚠ Offline';
                 document.getElementById('apiStatus').className = 'api-status bg-danger';
             }
-        });
 
-        // Set focus on query field on load
-        window.addEventListener('load', () => {
+            // Set focus on query field
             document.getElementById('query').focus();
         });
     </script>
