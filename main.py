@@ -8,7 +8,7 @@ import asyncio
 import sys
 import httpx
 from pathlib import Path
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -201,20 +201,25 @@ async def call_rapidapi_fallback(query: str, location: str) -> dict:
 
 @app.route("/", methods=["GET"])
 def root():
-    """Health check - proves agent is running"""
-    return jsonify({
-        "status": "ready",
-        "service": "Job Search Agent",
-        "version": "1.0",
-        "architecture": "ADK (LlmAgent) + MCP (McpToolset) + Gemini + RapidAPI",
-        "agent": "Configured and ready" if AGENT_READY else "Warning: Agent not loaded",
-        "endpoints": [
-            "GET  /",
-            "GET  /health",
-            "POST /search",
-            "GET  /search?query=...&location=..."
-        ]
-    })
+    """Serve UI for browsers, JSON for API clients"""
+    # Content-type negotiation: API requests get JSON, browser requests get HTML
+    if request.headers.get('Accept') == 'application/json':
+        return jsonify({
+            "status": "ready",
+            "service": "Job Search Agent",
+            "version": "1.0",
+            "architecture": "ADK (LlmAgent) + MCP (McpToolset) + Gemini + RapidAPI",
+            "agent": "Configured and ready" if AGENT_READY else "Warning: Agent not loaded",
+            "endpoints": [
+                "GET  /",
+                "GET  /health",
+                "POST /search",
+                "GET  /search?query=...&location=..."
+            ]
+        })
+
+    # Serve HTML UI for browser requests
+    return render_template('index.html')
 
 
 @app.route("/health", methods=["GET"])
