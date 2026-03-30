@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from functools import wraps
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -24,7 +24,8 @@ logger = logging.getLogger("api")
 
 # Explicitly set template folder path (works in both local and Cloud Run)
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
-app = Flask(__name__, template_folder=template_dir)
+html_file_path = os.path.join(template_dir, 'index.html')
+app = Flask(__name__)
 
 # ===== SECURITY HEADERS MIDDLEWARE =====
 @app.after_request
@@ -337,10 +338,18 @@ def root():
 
     # Serve HTML UI for browser requests
     try:
-        return render_template('index.html')
+        # Read HTML file directly (more reliable than render_template)
+        logger.info(f"[UI] Loading HTML from: {html_file_path}")
+        with open(html_file_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        logger.info(f"[UI] HTML file loaded successfully ({len(html_content)} bytes)")
+        return html_content, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except FileNotFoundError as e:
+        logger.error(f"[UI] HTML file not found at: {html_file_path}")
+        return jsonify({"error": "UI file not found", "path": html_file_path}), 404
     except Exception as e:
-        logger.error(f"Template rendering failed: {e}")
-        return jsonify({"error": "UI unavailable"}), 500
+        logger.error(f"[UI] Failed to load UI: {type(e).__name__}: {e}")
+        return jsonify({"error": "UI unavailable", "reason": str(e)}), 500
 
 
 @app.route("/health", methods=["GET"])
