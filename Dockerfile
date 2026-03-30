@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY job_agent/ ./job_agent/
 COPY mcp_job_server/ ./mcp_job_server/
+COPY templates/ ./templates/
 COPY main.py .
 
 # Create non-root user for security
