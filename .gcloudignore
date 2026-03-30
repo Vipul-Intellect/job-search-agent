@@ -1,0 +1,82 @@
+# Environment variables (handled by Cloud Run secrets)
+.env
+.env.local
+.env.*.local
+
+# Virtual environments (will be built in container)
+venv/
+env/
+ENV/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_agent.py
+test_local.ps1
+*.test.py
+
+# Build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+
+# Logs and temporary files
+*.log
+.cache
+.*.log
+*.tmp
+
+# Version control
+.git/
+.gitignore
+.github/
+
+# Documentation (optional, uncomment if large)
+# docs/
+# *.md
+
+# IDE workspace files
+.vscode/settings.json
+.vscode/extensions.json
+
+# Node modules (if any frontend build tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
