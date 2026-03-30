@@ -22,7 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api")
 
-app = Flask(__name__)
+# Explicitly set template folder path (works in both local and Cloud Run)
+template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+app = Flask(__name__, template_folder=template_dir)
 
 # ===== SECURITY HEADERS MIDDLEWARE =====
 @app.after_request
